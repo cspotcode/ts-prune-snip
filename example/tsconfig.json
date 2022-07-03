@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "strict": false,
+        "target": "ESNext",
+        "module": "NodeNext",
+        "allowJs": true
+    },
+    "exclude": ["config.ts"]
+}

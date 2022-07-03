@@ -1,9 +1,3 @@
-import {$, globby} from '@cspotcode/zx';
-import {} from 'clipanion';
-import {} from 'ts-morph';
-import { validateAPIInputSSAIGetDebugToken } from '../../src/main_validate_functions';
-import { Declaration, Project, Reference } from './graph';
-
 export interface Config {
     /** Do a git reset before DCE analysis. */
     gitReset?: boolean;
@@ -13,4 +7,24 @@ export interface Config {
     deleteFiles?: string[];
     /** Entrypoint files; nothing in them or referenced by them can be DCEd */
     entrypoints: string[];
+    /** All source files.  Used when checking for grep references */
+    sources: string[];
+    tsConfigPath: string;
 }
+
+export const config: Config = {
+    gitReset: false,
+    deleteFiles: [
+        'src/index_ui_*'
+    ],
+    entrypoints: [
+        'src/index_*'
+    ],
+    sources: [
+        'src/**/*.js',
+        'src/**/*.ts'
+    ],
+    tsConfigPath: 'example/tsconfig.json'
+};
+
+export default config;
