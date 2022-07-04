@@ -19,6 +19,7 @@ export interface Config {
 export interface LoadedConfig extends Config {
     basedir: string;
     entrypointsGlobbedAbs: string[];
+    sourcesGlobbedAbs: string[];
 }
 
 export async function readConfig(configPath: string, cwd: string = process.cwd()): Promise<LoadedConfig> {
@@ -27,9 +28,11 @@ export async function readConfig(configPath: string, cwd: string = process.cwd()
     const config = (configModule?.config ?? configModule?.default ?? configModule) as Config;
     const basedir = Path.dirname(configPathAbs);
     const entrypointsGlobbedAbs = (await globby(config.entrypoints, {absolute: true, cwd: basedir}));
+    const sourcesGlobbedAbs = (await globby(config.sources, {absolute: true, cwd: basedir}));
     return {
         basedir,
         entrypointsGlobbedAbs,
+        sourcesGlobbedAbs,
         ...config,
     }
 }

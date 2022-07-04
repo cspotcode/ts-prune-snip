@@ -1,4 +1,4 @@
-import {EnumDeclaration, ExportDeclaration, Project as TsProject, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node, Identifier, ObjectBindingPattern, ArrayBindingElement, ArrayBindingPattern, StringLiteral, ReferenceFindableNode} from 'ts-morph';
+import {EnumDeclaration, ExportDeclaration, Project as TsProject, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node, Identifier, ObjectBindingPattern, ArrayBindingElement, ArrayBindingPattern, StringLiteral, ReferenceFindableNode, createWrappedNode, PropertyAccessExpression} from 'ts-morph';
 import { Config, LoadedConfig } from './config';
 import Path from 'path';
 import { createSpan, Declaration, GraphFactory, Project, File, GraphNodeKind, GraphNode, Span } from './graph';
@@ -9,8 +9,16 @@ import { getLoggableFilename, getLoggableLocation } from './logging';
 import { groupBy, mapValues } from 'lodash';
 import { applyCollapsedEdits, collapseSpans } from './snipping';
 import fs from 'fs';
+import {createUi} from './ui';
+
+let log: (msg: string) => void;
 
 export async function createProgram(config: LoadedConfig) {
+
+    const ui = createUi();
+    // ui.start();
+    log = ui.state.log.bind(ui.state);
+
     const tsProject = new TsProject({
         tsConfigFilePath: Path.resolve(config.basedir, config.tsConfigPath),
     });
@@ -37,9 +45,10 @@ export async function createProgram(config: LoadedConfig) {
             sourceFile
         });
         project.files.push(file);
+        ui.state.filesInProjectCount = project.files.length;
         file.gcFlags |= GcFlag.didReferenceSearch;
 
-        console.log(`- ${ getLoggableFilename(file.filename) }`);
+        log(`- ${ getLoggableFilename(file.filename) }`);
         for(const d of forEachSourceFileExportOrStatement(sourceFile)) {
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
@@ -50,14 +59,24 @@ export async function createProgram(config: LoadedConfig) {
             file.declarations.push(graphDeclaration);
             if(d.isExport) {
                 graphDeclaration.name = d.exportName;
-                console.log(`  - <export> ${d.exportName} ${getLoggableLocation(d.name)}`);
-                const refs = d.referenceFindableNode.findReferencesAsNodes();
+                log(`  - <export> ${d.exportName} ${getLoggableLocation(d.name ?? d.declaration)}`);
+                let refs: Node[];
+                try {
+                    refs = d.referenceFindableNode.findReferencesAsNodes();
+                } catch(e) {
+                    if(e.message.includes('A language service is required')) {
+                        refs = tsProject.getLanguageService().findReferencesAsNodes(d.referenceFindableNode);
+                    } else {
+                        throw e;
+                    }
+                }
                 graphDeclaration.gcFlags |= GcFlag.didReferenceSearch;
                 tuples.push([d, graphDeclaration, refs]);
-                console.log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
+                log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
             } else {
-                console.log(`  - <statement> ${getLoggableLocation(d.statement)}`);
+                log(`  - <statement> ${getLoggableLocation(d.statement)}`);
             }
+            if(ui.occasionallyAwait()) await null;
         }
     }
 
@@ -66,6 +85,7 @@ export async function createProgram(config: LoadedConfig) {
     for(const [exportInfo, declaration, references] of tuples) {
         for (const referenceNode of references) {
             const fileContainingReference = getFile(project, referenceNode);
+            if(!fileContainingReference) continue;
             assert(fileContainingReference, `File not found in project: ${referenceNode.getSourceFile().getFilePath()}\nProject contains files:\n${project.files.map(f => f.filename).join('\n')}`);
             const declarationContainingReference = getDeclaration(fileContainingReference, referenceNode);
             /*
@@ -83,10 +103,12 @@ export async function createProgram(config: LoadedConfig) {
             } else {
                 fileContainingReference.orphanedCheckerUsages.push(checkerUsage);
             }
+            ui.state.analyzedReferencesCount++;
+            if(ui.occasionallyAwait()) await null;
         }
     }
 
-    console.log('Marking all reachable statements...');
+    log('Marking all reachable statements...');
     mark(project, GcFlag.reachableByChecker, {
         followGrepReferences: false
     });
@@ -95,14 +117,16 @@ export async function createProgram(config: LoadedConfig) {
         return node.gcFlags & GcFlag.reachableByChecker || !(node.gcFlags & GcFlag.didReferenceSearch);
     }
 
+    log = console.log;
+
     // NOTE: cannot check the file node's reachability bit.
     // Must check each declaration within the file.
-    console.log('Unreachable files:');
+    log('Unreachable files:');
     const unreachableFiles = new Set<File>();
     for(const file of graphFactory.nodes) {
         if(file.kind === GraphNodeKind.File) {
-            if(file.declarations.every(d => !reachable(d))) {
-                console.log(`- ${getLoggableFilename(file.filename)}`);
+            if(file.declarations.every(d => !reachable(d)) && config.sourcesGlobbedAbs.includes(file.filename)) {
+                log(`- ${getLoggableFilename(file.filename)}`);
                 unreachableFiles.add(file);
             }
         }
@@ -115,10 +139,10 @@ export async function createProgram(config: LoadedConfig) {
 
     const spansToRemove: [string, Span][] = [];
 
-    console.log('Unreachable statements:');
+    log('Unreachable statements:');
     for(const declaration of graphFactory.nodes) {
-        if(declaration.kind === GraphNodeKind.Declaration && !reachable(declaration) && !unreachableFiles.has(declaration.file)) {
-            console.log(`- ${declaration.name ?? '<statement>'} (in ${getLoggableFilename(declaration.file.filename)}:${declaration.statement.getStartLineNumber()})`)
+        if(declaration.kind === GraphNodeKind.Declaration && !reachable(declaration) && !unreachableFiles.has(declaration.file) && config.sourcesGlobbedAbs.includes(declaration.file.filename)) {
+            log(`- ${declaration.name ?? '<statement>'} (in ${getLoggableFilename(declaration.file.filename)}:${declaration.statement.getStartLineNumber()})`)
             spansToRemove.push([declaration.file.filename, declaration.span]);
         }
     }
@@ -138,7 +162,7 @@ export async function createProgram(config: LoadedConfig) {
         const linesBefore = sourceBefore.split('\n').length;
         const sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans);
         const linesAfter = sourceAfter.split('\n').length;
-        console.log(`${getLoggableFilename(filename)} has ${linesBefore - linesAfter} lines of code to be removed.`);
+        log(`${getLoggableFilename(filename)} has ${linesBefore - linesAfter} lines of code to be removed.`);
         if(config.emit) {
             fs.writeFileSync(filename, sourceAfter);
         }
@@ -176,12 +200,14 @@ function* forEachSourceFileExportOrStatement(sf: SourceFile): Iterable<ExportInf
     const visited = new Set();
     for(const ed of sf.getExportedDeclarations()) {
         for(const declaration of ed[1]) {
-            const statement = ascendToDirectChild(sf, declaration);
-            assert(!visited.has(declaration));
-            assert(!visited.has(statement));
+            const statement = getParentTopLevelStatement(declaration);
+            // assert(!visited.has(declaration));
+            // assert(!visited.has(statement), `${getLoggableLocation(statement)}`);
             if(visited.has(declaration)) continue;
             visited.add(declaration);
             visited.add(statement);
+            // log(`visited ${getLoggableLocation(statement)} via:\n${declaration.getFullText().slice(0, 300).split('\n').map(l => `> ${l}`).join('\n')}`);
+            log(`visited ${getLoggableLocation(statement)}`);
             const name = getNameIdentifier(declaration);
             const referenceFindableNode = getReferenceFindable(declaration);
             yield {
@@ -189,7 +215,7 @@ function* forEachSourceFileExportOrStatement(sf: SourceFile): Iterable<ExportInf
                 exportName: ed[0],
                 statement,
                 declaration,
-                name: name,
+                name,
                 obtainedViaAlternateMethod: false,
                 referenceFindableNode
             };
@@ -236,13 +262,39 @@ function getNameIdentifier(node: ExportedDeclarations): NameNode {
         ?? node.asKind(SyntaxKind.ModuleDeclaration)?.getNameNode();
     // Expression | SourceFile
     if(ret) return ret;
+
+    // Maybe it's `exports.foo = ` expression
     const propAccessExpr = node.asKind(SyntaxKind.PropertyAccessExpression);
     if(propAccessExpr?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'exports') {
         return propAccessExpr.getNameNode();
     }
-    console.log(node.getKindName());
-    console.log(node.getFullText());
-    assert(ret != null);
+
+    // Maybe it's `someFunctionDeclaration.foo = ` expression (TODO dedupe with logic above for perf)
+    if(
+        node.getParent()?.asKind(SyntaxKind.PropertyAccessExpression)?.getExpression() === node &&
+        node.getParent()?.getParent()?.asKind(SyntaxKind.BinaryExpression)?.getOperatorToken().asKind(SyntaxKind.EqualsToken)
+    ) {
+        return node.getParent().asKind(SyntaxKind.PropertyAccessExpression)?.getNameNode();
+    }
+
+    // Maybe it's Object.defineProperty(exports, 'foo', {` statement
+    const callExpr = node.asKind(SyntaxKind.CallExpression);
+    const callExprExpr = callExpr?.getExpression().asKind(SyntaxKind.PropertyAccessExpression);
+    if(callExprExpr?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'Object' && callExprExpr.getName() === 'defineProperty') {
+        if(callExpr.getArguments()[0].asKind(SyntaxKind.Identifier).getText() === 'exports') {
+            log(`WARNING found defineProperty call on exports; this makes static analysis difficult.  Recommend refactoring into a getter function.\n${getLoggableLocation(callExpr)}`);
+        }
+    }
+
+    const tryGetJsDocTypedefName = node.asKind(SyntaxKind.JSDocTypedefTag)?.compilerNode.name;
+    if(tryGetJsDocTypedefName) return createWrappedNode(tryGetJsDocTypedefName);
+
+    if(node.isKind(SyntaxKind.BindingElement) && node.getParent()?.getParent().isKind(SyntaxKind.VariableDeclaration)) {
+        // is `export const {foo} = bar;`; skip for now
+        return undefined;
+    }
+
+    assert(ret != null, `${ node.getKindName() } ${getLoggableLocation(node)} ${node.getFullText()}`);
     return ret;
 }
 
@@ -257,13 +309,15 @@ function ascendToDirectChild(parent: Node, node: Node) {
 }
 
 function getParentTopLevelStatement(node: Node) {
-    const ret = node.getParentWhile((parent, child) => !parent.isKind(SyntaxKind.SourceFile));
+    const ret = ascendToDirectChild(node.getSourceFile(), node);
+    // This didn't work; pretty sure I got mixed up on the logic
+    // const ret = node.getParentWhile((parent, child) => !parent.isKind(SyntaxKind.SourceFile));
     assert(ret);
     return ret;
 }
 
 function getReferenceFindable(node: ExportedDeclarations) {
-    let ret: Node | undefined = getNameIdentifier(node);
+    let ret: Node | undefined = getNameIdentifier(node) ?? node;
     while(!Node.isReferenceFindable(ret)) {
         ret = ret.getParent();
         assert(ret);
