@@ -11,7 +11,12 @@ export interface GcObject {
 }
 export enum GcFlag {
     reachableByChecker = 1,
-    reachableByGrep = 2
+    reachableByGrep = 2,
+    /**
+     * set when we're able to successfully search for references to this node.
+     * Nodes we cannot search cannot be safely removed.
+     */
+    didReferenceSearch = 4,
 }
 
 type VisitCallbackRet = boolean;

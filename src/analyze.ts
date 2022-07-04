@@ -36,10 +36,10 @@ export async function createProgram(config: LoadedConfig) {
             isEntrypoint: config.entrypointsGlobbedAbs.includes(sourceFile.getFilePath()),
             sourceFile
         });
-        console.log(`File isEntrypoint=${file.isEntrypoint} ${file.filename}`);
         project.files.push(file);
+        file.gcFlags |= GcFlag.didReferenceSearch;
 
-        console.log(`- ${ Path.relative(process.cwd(), file.filename) }`);
+        console.log(`- ${ getLoggableFilename(file.filename) }`);
         for(const d of forEachSourceFileExportOrStatement(sourceFile)) {
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
@@ -52,6 +52,7 @@ export async function createProgram(config: LoadedConfig) {
                 graphDeclaration.name = d.exportName;
                 console.log(`  - <export> ${d.exportName} ${getLoggableLocation(d.name)}`);
                 const refs = d.referenceFindableNode.findReferencesAsNodes();
+                graphDeclaration.gcFlags |= GcFlag.didReferenceSearch;
                 tuples.push([d, graphDeclaration, refs]);
                 console.log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
             } else {
@@ -91,7 +92,7 @@ export async function createProgram(config: LoadedConfig) {
     });
 
     function reachable(node: GraphNode) {
-        return node.gcFlags & GcFlag.reachableByChecker;
+        return node.gcFlags & GcFlag.reachableByChecker || !(node.gcFlags & GcFlag.didReferenceSearch);
     }
 
     // NOTE: cannot check the file node's reachability bit.
@@ -107,6 +108,11 @@ export async function createProgram(config: LoadedConfig) {
         }
     }
 
+    const unreachableFilenames = new Set<string>();
+    for(const f of unreachableFiles) {
+        unreachableFilenames.add(f.filename);
+    }
+
     const spansToRemove: [string, Span][] = [];
 
     console.log('Unreachable statements:');
@@ -119,6 +125,7 @@ export async function createProgram(config: LoadedConfig) {
 
     const groupedSpans = mapValues(groupBy(spansToRemove, ([filename]) => filename), v => v.map(([f, s]) => s));
     for(const [filename, spans] of Object.entries(groupedSpans)) {
+        if(unreachableFilenames.has(filename)) continue;
         const sourceBefore = getFile(project, filename).sourceFile.getFullText();
         const extendedSpans = spans.map(s => {
             if(sourceBefore[s.end] === '\n') return {
@@ -132,7 +139,6 @@ export async function createProgram(config: LoadedConfig) {
         const sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans);
         const linesAfter = sourceAfter.split('\n').length;
         console.log(`${getLoggableFilename(filename)} has ${linesBefore - linesAfter} lines of code to be removed.`);
-        console.log(sourceAfter);
         if(config.emit) {
             fs.writeFileSync(filename, sourceAfter);
         }
