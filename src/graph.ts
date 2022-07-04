@@ -38,6 +38,7 @@ export class NodeFactory {
             isEntrypoint: false,
             orphanedCheckerUsages: [],
             orphanedGrepUsages: [],
+            statement: null,
             ...file
         });
     }
@@ -103,16 +104,19 @@ export interface Declaration extends GcObject {
     span: Span;
     checkerUsages: CheckerUsage[];
     grepUsages: GrepUsage[];
+    statement: Node;
 }
 
 export interface Span {
+    fullStart: number;
     start: number;
     end: number;
 }
 
 export function createSpan(node: Node): Span {
     return {
-        start: node.getFullStart(),
+        fullStart: node.getFullStart(),
+        start: node.getStart(),
         end: node.getEnd()
     }
 }

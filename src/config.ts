@@ -1,3 +1,5 @@
+import Path from 'path';
+
 export interface Config {
     /** Do a git reset before DCE analysis. */
     gitReset?: boolean;
@@ -10,6 +12,21 @@ export interface Config {
     /** All source files.  Used when checking for grep references */
     sources: string[];
     tsConfigPath: string;
+}
+
+export interface LoadedConfig extends Config {
+    basedir: string;
+}
+
+export function readConfig(configPath: string, cwd: string = process.cwd()): LoadedConfig {
+    const configPathAbs = Path.resolve(cwd, configPath);
+    const configModule = require(configPathAbs);
+    const config = (configModule?.config ?? configModule?.default ?? configModule) as Config;
+    const basedir = Path.dirname(configPathAbs);
+    return {
+        basedir,
+        ...config,
+    }
 }
 
 export const config: Config = {

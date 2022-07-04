@@ -1,11 +1,10 @@
-import { Config } from './config';
-import { createProgram } from './create-program';
+import { Config, readConfig } from './config';
+import { createProgram } from './analyze';
 import Path from 'path';
 
 async function main() {
-    const cwd = Path.resolve(__dirname, '../example');
-    const config = require('../example/config').config as Config;
-    await createProgram(cwd, config);
+    const config = readConfig(Path.resolve(__dirname, '../example/config.ts'));
+    await createProgram(config);
 }
 
 main();

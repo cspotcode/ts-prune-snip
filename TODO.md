@@ -21,16 +21,17 @@ We identified a bug where .js exports are unavailable until the first time we lo
 
 ## Next steps
 
-- [ ] stop thinking "exports;" start thinking "declarations"
+- [x] stop thinking "exports;" start thinking "declarations"
   - it doesn't actually matter if something is an export
 
 - [x] iterate exports first to avoid that bug
-- [ ] iterate exports second
-  - [ ] create declaration nodes
+- [x] iterate exports second
+  - [x] create declaration nodes
   - [x] collect references
-  - expand this iteration step to collect statements, even though they are not all "reference-able"
+  - [x] expand this iteration step to collect statements, even though they are not all "reference-able"
     - concept of "reference-able" and "non-reference-able" statements (exports are reference-able statements)
 - [ ] traverse discovered statements and references
+  - YOU ARE HERE
   - [ ] attribute each reference to a statement, build up the graph
 
 then mark()
@@ -49,3 +50,9 @@ then generate excel sheet of exports
   - If b is used, it references the export statement.
   - export statement reference `const a`.
   - yet `const a` may be unused.
+
+## Ideas
+
+- emit GraphViz?
+  - https://gephi.org/users/quick-start/
+  - https://github.com/graphology/graphology
