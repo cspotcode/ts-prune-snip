@@ -9,3 +9,7 @@ export function isUsed() {
 }
 
 function internal() {}
+
+const a = 1;
+const b = 2;
+export {a, b};

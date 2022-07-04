@@ -1,17 +1,17 @@
-import {EnumDeclaration, ExportDeclaration, Project, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node} from 'ts-morph';
+import {EnumDeclaration, ExportDeclaration, Project, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node, Identifier, ObjectBindingPattern, ArrayBindingElement, ArrayBindingPattern, StringLiteral, ReferenceFindableNode} from 'ts-morph';
 import { Config } from './config';
 import Path from 'path';
 import { createSpan, NodeFactory } from './graph';
 import { globby } from '@cspotcode/zx';
 import assert from 'assert';
 
-export async function createProgram(config: Config) {
+export async function createProgram(cwd: string, config: Config) {
     const project = new Project({
-        tsConfigFilePath: config.tsConfigPath,
+        tsConfigFilePath: Path.resolve(cwd, config.tsConfigPath),
     });
 
     const entrypoints = (await globby(config.entrypoints)).map(s =>
-        Path.resolve(s)
+        Path.resolve(cwd, s)
     );
 
     const nodeFactory = new NodeFactory();
@@ -19,87 +19,60 @@ export async function createProgram(config: Config) {
         files: []
     });
 
+    // Iterate once to avoid ts-morph bug(?)
     for(const sf of project.getSourceFiles()) {
+        for(const d of forEachSourceFileExport(sf)) {}
+    }
+
+    // Iterate again to instantiate files, declarations, and collect references
+    const tuples: [ExportInfo, Node[]][] = [];
+    for(const sourceFile of project.getSourceFiles()) {
         const file = nodeFactory.createFile({
-            filename: sf.getFilePath(),
-            isEntrypoint: entrypoints.includes(sf.getFilePath())
+            filename: sourceFile.getFilePath(),
+            isEntrypoint: entrypoints.includes(sourceFile.getFilePath()),
+            sourceFile
         });
         pruneProject.files.push(file);
 
-        console.log(file.filename);
-        for(const d of forEachSourceFileExport(sf)) {
-            console.log(`- ${d.exportName} ${JSON.stringify(d.statement.getFullText())}`);
+        console.log(Path.relative(process.cwd(), file.filename));
+        for(const d of forEachSourceFileExport(sourceFile)) {
+            console.log(`- ${d.exportName} ${getLoggableLocation(d.name)}`);
+            // console.log(`- ${d.exportName} ${JSON.stringify(d.declaration.getFullText())} ${JSON.stringify(d.statement.getFullText())} ${d.obtainedViaAlternateMethod}`);
+            const refs = d.referenceFindableNode.findReferencesAsNodes();
+            tuples.push([d, refs]);
+            console.log(refs.map(r => `  - ${getLoggableLocation(r)}`).join('\n'));
         }
-
-        // for(const ea of sf.getExportAssignments()) {
-        //     console.dir({file: sf.getFilePath(), exportName: ea.getSymbol()?.getName()});
-        // }
-        // for(const ed of sf.getExportDeclarations()) {
-        //     console.dir({file: sf.getFilePath(), exportName: ed.getSymbol()?.getName()});
-        // }
-        // for(const ed of sf.getExportedDeclarations()) {
-        //     console.dir({
-        //         file: sf.getFilePath(),
-        //         ed0: ed[0],
-        //         kind: ed[1][0].getKindName(),
-        //     });
-        //     for(const d of ed[1]) {
-        //         visited.add(d);
-        //         const declaration = nodeFactory.createDeclaration({
-        //             file,
-        //             name: ed[0],
-        //             span: createSpan(d),
-        //         });
-        //         file.declarations.push(declaration);
-        //     }
-        // }
-        // for(const statement of sf.getStatements()) {
-        //     if(visited.has(statement)) continue;
-        //     const be = statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression);
-        //     if(be?.getOperatorToken().isKind(SyntaxKind.EqualsToken)) {
-        //         const propAccess = be.getLeft().asKind(SyntaxKind.PropertyAccessExpression);
-        //         if(propAccess?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'exports') {
-        //             const exportName = propAccess.getName();
-        //             const references = propAccess.getNameNode().findReferencesAsNodes();
-        //             console.dir({
-        //                 file: sf.getFilePath(),
-        //                 exportName,
-        //                 text: statement.getFullText(),
-        //                 references: references.map(r => [r.getFullText(), r.getStartLineNumber(), r.getSourceFile().getFilePath()]),
-        //             });
-        //             continue;
-        //         }
-        //     }
-        //     console.dir({
-        //         file: sf.getFilePath(),
-        //         kind: statement.getKindName(),
-        //         text: statement.getFullText(),
-        //     });
-        // }
     }
 }
 
 interface ExportInfo {
     /** Direct child of SourceFile */
     statement: Node;
+    declaration: Node;
+    name: NameNode;
     /** node suitable for "find all references" queries */
-    identifier: Node;
+    referenceFindableNode: ReferenceFindableNode;
     /** Name of the export, null if it is `export =` assignment */
     exportName: string;
+    obtainedViaAlternateMethod: boolean;
 }
 
 function* forEachSourceFileExport(sf: SourceFile): Iterable<ExportInfo> {
     const visited = new Set();
     for(const ed of sf.getExportedDeclarations()) {
-        for(const decl of ed[1]) {
-            const statement = ascendToDirectChild(sf, decl);
-            if(visited.has(statement)) continue;
-            visited.add(statement);
-            const name = getNameIdentifier(decl);
+        for(const declaration of ed[1]) {
+            const statement = ascendToDirectChild(sf, declaration);
+            if(visited.has(declaration)) continue;
+            visited.add(declaration);
+            const name = getNameIdentifier(declaration);
+            const referenceFindableNode = getReferenceFindable(declaration);
             yield {
                 exportName: ed[0],
-                statement: decl,
-                identifier: name,
+                statement,
+                declaration,
+                name: name,
+                obtainedViaAlternateMethod: false,
+                referenceFindableNode
             };
         }
     }
@@ -108,20 +81,26 @@ function* forEachSourceFileExport(sf: SourceFile): Iterable<ExportInfo> {
         const be = statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression);
         if(be?.getOperatorToken().isKind(SyntaxKind.EqualsToken)) {
             const propAccess = be.getLeft().asKind(SyntaxKind.PropertyAccessExpression);
+            if(visited.has(propAccess)) continue;
             if(propAccess?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'exports') {
                 const exportName = propAccess.getName();
                 const exportNameIdentifier = propAccess.getNameNode();
+                const referenceFindableNode = getReferenceFindable(propAccess);
                 yield {
                     exportName,
-                    identifier: exportNameIdentifier,
-                    statement
+                    name: exportNameIdentifier,
+                    declaration: propAccess,
+                    statement,
+                    obtainedViaAlternateMethod: true,
+                    referenceFindableNode,
                 };
             }
         }
     }
 }
 
-function getNameIdentifier(node: ExportedDeclarations) {
+type NameNode = Identifier | ObjectBindingPattern | ArrayBindingPattern | StringLiteral;
+function getNameIdentifier(node: ExportedDeclarations): NameNode {
     const ret = node.asKind(SyntaxKind.ClassDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.InterfaceDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.EnumDeclaration)?.getNameNode()
@@ -149,4 +128,25 @@ function ascendToDirectChild(parent: Node, node: Node) {
         assert(_node != null);
     }
     return _node;
+}
+
+function getParentTopLevelStatement(node: Node) {
+    const ret = node.getParentWhile((parent, child) => !parent.isKind(SyntaxKind.SourceFile));
+    assert(ret);
+    return ret;
+}
+
+function getReferenceFindable(node: ExportedDeclarations) {
+    let ret: Node | undefined = getNameIdentifier(node);
+    while(!Node.isReferenceFindable(ret)) {
+        ret = ret.getParent();
+        assert(ret);
+    }
+    return ret;
+}
+
+function getLoggableLocation(node: Node) {
+    const path = Path.relative(process.cwd(), node.getSourceFile().getFilePath());
+    const line = node.getStartLineNumber();
+    return `${path}:${line}`;
 }

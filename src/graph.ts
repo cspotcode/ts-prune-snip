@@ -11,7 +11,7 @@
 // code.
 
 import { GcObject } from "./gc";
-import { Node } from "ts-morph";
+import { Node, SourceFile } from "ts-morph";
 
 enum NodeKind {
     Project = 'p',
@@ -93,6 +93,7 @@ export interface File extends GcObject {
     declarations: Declaration[];
     orphanedCheckerUsages: CheckerUsage[];
     orphanedGrepUsages: GrepUsage[];
+    sourceFile: SourceFile;
 }
 
 export interface Declaration extends GcObject {
