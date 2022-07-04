@@ -8,6 +8,7 @@ import { GcFlag, mark, resetGcFlags } from './gc';
 import { getLoggableFilename, getLoggableLocation } from './logging';
 import { groupBy, mapValues } from 'lodash';
 import { applyCollapsedEdits, collapseSpans } from './snipping';
+import fs from 'fs';
 
 export async function createProgram(config: LoadedConfig) {
     const tsProject = new TsProject({
