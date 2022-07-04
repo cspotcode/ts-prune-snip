@@ -38,6 +38,11 @@ then mark()
 then generate excel sheet of exports
 - 
 
+- [ ] consolidate terminology: usage vs reference
+- [ ] consolidate terminology: semantic vs checker
+
+- [ ] non-exported statements should still get names.  Right now, `function foo() {}` does not have a name in usage reports
+
 ## Keep in mind
 
 - circular references should be skipped.  If a function calls itself, it can still be dead code.

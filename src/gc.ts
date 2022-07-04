@@ -1,3 +1,4 @@
+import { defaults } from "lodash";
 import { Declaration, File, Project, Reference } from "./graph";
 
 // interface MarkAndSweepState {
@@ -9,7 +10,7 @@ export interface GcObject {
     gcFlags: number;
 }
 export enum GcFlag {
-    reachableBySemantics = 1,
+    reachableByChecker = 1,
     reachableByGrep = 2
 }
 
@@ -27,18 +28,29 @@ interface VisitOptions {
 }
 
 /** Traverse the graph, call callback on each node.  Callbacks can return false to skip traversal of references. */
-export function visitProject(project: Project, visitOptions: VisitOptions, visitors: VisitCallbacks) {
+export function visitProject(project: Project, visitOptions: VisitOptions, _visitors: VisitCallbacks) {
+
+    const visitors = defaults({}, _visitors, {
+        visitProject: _visitors.visit,
+        visitFile: _visitors.visit,
+        visitDeclaration: _visitors.visit,
+        visitReference: _visitors.visit,
+    });
+
     return visitProject(project);
     function visitProject(project: Project) {
-        if(!(visitors.visitProject ?? visitors.visit)(project)) return;
+        if(!visitors.visitProject(project)) return;
         for(const file of project.files) {
             visitFile(file);
         }
     }
     function visitFile(file: File) {
-        if(!(visitors.visitFile ?? visitors.visit)(file)) return;
+        if(!visitors.visitFile(file)) return;
         for(const d of file.declarations) {
             visitDeclaration(d);
+        }
+        for(const usage of file.orphanedCheckerUsages) {
+            visitReference(usage);
         }
         if(visitOptions.followGrepReferences) {
             for(const r of file.orphanedGrepUsages) {
@@ -47,7 +59,7 @@ export function visitProject(project: Project, visitOptions: VisitOptions, visit
         }
     }
     function visitDeclaration(d: Declaration) {
-        if(!(visitors.visitDeclaration ?? visitors.visit)(d)) return;
+        if(!visitors.visitDeclaration(d)) return;
         for(const r of d.checkerUsages) {
             visitReference(r);
         }
@@ -58,7 +70,7 @@ export function visitProject(project: Project, visitOptions: VisitOptions, visit
         }
     }
     function visitReference(r: Reference) {
-        if(!(visitors.visitReference ?? visitors.visit)(r)) return;
+        if(!visitors.visitReference(r)) return;
         visitDeclaration(r.target);
     }
 }
@@ -74,6 +86,10 @@ export function mark(project: Project, flag: GcFlag, visitOptions: VisitOptions)
             if(obj.gcFlags & flag) return false;
             obj.gcFlags |= flag;
             return true;
+        },
+        visitFile(file) {
+            if(!file.isEntrypoint) return false;
+            return this.visit(file);
         }
     });
 }
@@ -90,7 +106,7 @@ export function sweep(nodes: Set<GcObject>, flag: GcFlag) {
     for(const node of nodes) {
         if(!(node.gcFlags & flag)) {
             // unreachable
-            deletions.
+            // deletions.
         }
     }
 }

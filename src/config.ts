@@ -1,4 +1,5 @@
 import Path from 'path';
+import {globby} from '@cspotcode/zx';
 
 export interface Config {
     /** Do a git reset before DCE analysis. */
@@ -12,19 +13,23 @@ export interface Config {
     /** All source files.  Used when checking for grep references */
     sources: string[];
     tsConfigPath: string;
+    emit: boolean;
 }
 
 export interface LoadedConfig extends Config {
     basedir: string;
+    entrypointsGlobbedAbs: string[];
 }
 
-export function readConfig(configPath: string, cwd: string = process.cwd()): LoadedConfig {
+export async function readConfig(configPath: string, cwd: string = process.cwd()): Promise<LoadedConfig> {
     const configPathAbs = Path.resolve(cwd, configPath);
     const configModule = require(configPathAbs);
     const config = (configModule?.config ?? configModule?.default ?? configModule) as Config;
     const basedir = Path.dirname(configPathAbs);
+    const entrypointsGlobbedAbs = (await globby(config.entrypoints, {absolute: true, cwd: basedir}));
     return {
         basedir,
+        entrypointsGlobbedAbs,
         ...config,
     }
 }

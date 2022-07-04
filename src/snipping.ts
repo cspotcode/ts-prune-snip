@@ -2,22 +2,23 @@ import { Span } from "./graph";
 import { sortBy } from "lodash";
 
 export function collapseSpans(spans: Span[]) {
-    const sorted = sortBy(spans, span => span.start);
-    const collapsed = [];
+    const sorted = sortBy(spans, span => span.fullStart);
+    const collapsed: Span[] = [];
     let previous: Span | undefined = undefined;
     for(const next of sorted) {
-        if(previous && previous.end > next.start) {
+        if(previous && previous.end > next.fullStart) {
             // collapse both spans together
             previous = {
+                fullStart: previous.fullStart,
                 start: previous.start,
                 end: Math.max(previous.end, next.end)
             };
-            return;
+            continue;
         }
-        collapsed.push(previous);
+        if(previous) collapsed.push(previous);
         previous = next;
     }
-    collapsed.push(previous);
+    if(previous) collapsed.push(previous);
     return collapsed;
 }
 
