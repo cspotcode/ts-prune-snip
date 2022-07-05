@@ -62,10 +62,12 @@ export async function createProgram(config: LoadedConfig) {
 
         log(`- FILE ${ getLoggableFilename(file.filename) }`);
         for(const d of forEachDeclarationOrStatement(sourceFile)) {
+            const isExportDotEquals = d.statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression)?.getLeft().asKind(SyntaxKind.PropertyAccessExpression)?.getExpression().getText() === 'exports';
+
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
                 statement: d.statement,
-                span: createSpan((d as NamedDeclarationInfo).declaration ?? d.statement),
+                span: isExportDotEquals ? createSpan(d.statement) : createSpan((d as NamedDeclarationInfo).declaration ?? d.statement),
                 isExport: d.isExport
             });
             file.declarations.push(graphDeclaration);
