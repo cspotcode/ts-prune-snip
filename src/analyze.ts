@@ -12,6 +12,7 @@ import fs from 'fs';
 import {createUi} from './ui';
 import { createReferencesBugWorkaroundApi } from './reference-bug-workaround';
 import { forEachDeclarationOrStatement, getNameIdentifier, NamedDeclarationInfo } from './iterate-declarations';
+import { postprocessSource } from './string-based-postprocessing';
 
 let log: (msg: string) => void;
 
@@ -183,7 +184,9 @@ export async function createProgram(config: LoadedConfig) {
         });
         const collapsedSpans = collapseSpans(extendedSpans);
         const linesBefore = sourceBefore.split('\n').length;
-        const sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans);
+        let sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans);
+        sourceAfter = postprocessSource(sourceAfter);
+
         const linesAfter = sourceAfter.split('\n').length;
         log(`${getLoggableFilename(filename)} has ${linesBefore - linesAfter} lines of code to be removed.`);
         if(config.emit) {
