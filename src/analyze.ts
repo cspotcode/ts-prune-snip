@@ -74,25 +74,27 @@ export async function createProgram(config: LoadedConfig) {
             if(d.hasName) {
                 graphDeclaration.name = d.nameString;
                 log(`  - ${d.isExport ? 'EXPORT' : 'LOCAL'} ${d.nameString} ${getLoggableLocation(d.name ?? d.declaration)}`);
-                let refs: Node[];
-                try {
-                    refs = d.referenceFindableNode.findReferencesAsNodes();
-                } catch(e: unknown) {
-                    if((e as Error).message.includes('A language service is required')) {
-                        log(`using language service for ${d.referenceFindableNode.getFullText()}`);
-                        refs = tsProject.getLanguageService().findReferencesAsNodes(d.referenceFindableNode);
-                    } else {
-                        throw e;
+                let refs: Node[] = [];
+                if(!config.skipReferenceDiscoveryGlobbedAbs.includes(file.filename)) {
+                    try {
+                        refs = d.referenceFindableNode.findReferencesAsNodes();
+                    } catch(e: unknown) {
+                        if((e as Error).message.includes('A language service is required')) {
+                            log(`using language service for ${d.referenceFindableNode.getFullText()}`);
+                            refs = tsProject.getLanguageService().findReferencesAsNodes(d.referenceFindableNode);
+                        } else {
+                            throw e;
+                        }
                     }
-                }
-                const moreRefs = tsProject.getLanguageService().findReferencesAtPosition(referencesSourceFile, referencesBugWorkaroundApi.getExportPosition(sourceFile, d.nameString)!);
-                for(const r of moreRefs) {
-                    refs.push(r.getDefinition().getNode());
-                    for(const r2 of r.getReferences()) {
-                        refs.push(r2.getNode());
+                    const moreRefs = tsProject.getLanguageService().findReferencesAtPosition(referencesSourceFile, referencesBugWorkaroundApi.getExportPosition(sourceFile, d.nameString)!);
+                    for(const r of moreRefs) {
+                        refs.push(r.getDefinition().getNode());
+                        for(const r2 of r.getReferences()) {
+                            refs.push(r2.getNode());
+                        }
                     }
+                    refs = uniq(refs);
                 }
-                refs = uniq(refs);
 
                 // TODO use the workaround to find more references
 
@@ -110,10 +112,17 @@ export async function createProgram(config: LoadedConfig) {
     // creating "usage" edges in the graph
     for(const [exportInfo, declaration, references] of tuples) {
         for (const referenceNode of references) {
+            // TODO HACK stop using a magic string
+            if(referenceNode.getSourceFile().getFilePath().includes('__virtual__')) continue;
+
             const fileContainingReference = getFile(project, referenceNode);
             if(!fileContainingReference) continue;
             assert(fileContainingReference, `File not found in project: ${referenceNode.getSourceFile().getFilePath()}\nProject contains files:\n${project.files.map(f => f.filename).join('\n')}`);
             const declarationContainingReference = getDeclaration(fileContainingReference, referenceNode);
+
+            // Skip self-references
+            if(declarationContainingReference === declaration) continue;
+
             /*
              * Get target file
              * Iterate file's declarations, finding one that wraps this node's position.
@@ -188,7 +197,7 @@ export async function createProgram(config: LoadedConfig) {
         });
         const collapsedSpans = collapseSpans(extendedSpans);
         const linesBefore = sourceBefore.split('\n').length;
-        let sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans);
+        let sourceAfter = applyCollapsedEdits(sourceBefore, collapsedSpans, config.preserveLineNumbers ?? false);
         sourceAfter = postprocessSource(sourceAfter);
 
         const linesAfter = sourceAfter.split('\n').length;
