@@ -125,8 +125,10 @@ export async function createProgram(config: LoadedConfig) {
                 target: declaration
             });
             if(declarationContainingReference) {
+                log(`USAGE ${getLoggableFilename(declarationContainingReference.file.filename)} ${declarationContainingReference.name} USES ${getLoggableFilename(declaration.file.filename)} ${declaration.name}`);
                 declarationContainingReference.checkerUsages.push(checkerUsage);
             } else {
+                log(`ORPHANED USAGE ${getLoggableFilename(fileContainingReference.filename)} USES ${getLoggableFilename(declaration.file.filename)} ${declaration.name}`);
                 fileContainingReference.orphanedCheckerUsages.push(checkerUsage);
             }
             ui.state.analyzedReferencesCount++;
