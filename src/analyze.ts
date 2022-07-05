@@ -1,4 +1,4 @@
-import {EnumDeclaration, ExportDeclaration, Project as TsProject, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node, Identifier, ObjectBindingPattern, ArrayBindingElement, ArrayBindingPattern, StringLiteral, ReferenceFindableNode, createWrappedNode, PropertyAccessExpression} from 'ts-morph';
+import {EnumDeclaration, ExportDeclaration, Project as TsProject, ExportedDeclarations, ExpressionStatement, SyntaxKind, SourceFile, Node, Identifier, ObjectBindingPattern, ArrayBindingElement, ArrayBindingPattern, StringLiteral, ReferenceFindableNode, createWrappedNode, PropertyAccessExpression, ScriptKind} from 'ts-morph';
 import { Config, LoadedConfig } from './config';
 import Path from 'path';
 import { createSpan, Declaration, GraphFactory, Project, File, GraphNodeKind, GraphNode, Span } from './graph';
@@ -10,6 +10,7 @@ import { groupBy, mapValues } from 'lodash';
 import { applyCollapsedEdits, collapseSpans } from './snipping';
 import fs from 'fs';
 import {createUi} from './ui';
+import { createReferencesBugWorkaroundApi } from './reference-bug-workaround';
 
 let log: (msg: string) => void;
 
@@ -18,6 +19,7 @@ export async function createProgram(config: LoadedConfig) {
     const ui = createUi();
     // ui.start();
     log = ui.state.log.bind(ui.state);
+    log = console.log;
 
     const tsProject = new TsProject({
         tsConfigFilePath: Path.resolve(config.basedir, config.tsConfigPath),
@@ -32,9 +34,13 @@ export async function createProgram(config: LoadedConfig) {
     for(const sf of tsProject.getSourceFiles()) {
         for(const d of forEachSourceFileExportOrStatement(sf)) {}
     }
+
+    // Instantiate workaround helper
+    const referencesBugWorkaroundApi = createReferencesBugWorkaroundApi(config, tsProject);
     for(const sf of tsProject.getSourceFiles()) {
-        for(const d of forEachSourceFileExportOrStatement(sf)) {}
+        referencesBugWorkaroundApi.addFile(sf);
     }
+    referencesBugWorkaroundApi.createSourceFile();
 
     // Iterate again to instantiate files, declarations, and collect references
     const tuples: [ExportInfo, Declaration, Node[]][] = [];
@@ -63,18 +69,37 @@ export async function createProgram(config: LoadedConfig) {
                 let refs: Node[];
                 try {
                     refs = d.referenceFindableNode.findReferencesAsNodes();
-                } catch(e) {
-                    if(e.message.includes('A language service is required')) {
+                } catch(e: unknown) {
+                    if((e as Error).message.includes('A language service is required')) {
+                        console.log(`using language service for ${d.referenceFindableNode.getFullText()}`);
                         refs = tsProject.getLanguageService().findReferencesAsNodes(d.referenceFindableNode);
                     } else {
                         throw e;
                     }
                 }
+
+                // TODO use the workaround to find more references
+
                 graphDeclaration.gcFlags |= GcFlag.didReferenceSearch;
                 tuples.push([d, graphDeclaration, refs]);
                 log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
             } else {
                 log(`  - <statement> ${getLoggableLocation(d.statement)}`);
+                const nameNode = d.statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression)?.getLeft().asKind(SyntaxKind.PropertyAccessExpression)?.getNameNode();
+                if(nameNode?.getFullText().includes('showsBug')) {
+                    console.log('\n'.repeat(5));
+                    console.log(d.statement.getFullText());
+                    console.log(nameNode.getFullText());
+                    console.log(tsProject.getLanguageService().findReferencesAtPosition(sourceFile, nameNode.getStart())[0]);
+                    console.log(nameNode.findReferencesAsNodes());
+                    console.log(tsProject.getTypeChecker().compilerObject.getSymbolAtLocation(nameNode.compilerNode));
+                    const localTargetSymbol = tsProject.getTypeChecker().compilerObject.getExportSpecifierLocalTargetSymbol(nameNode.compilerNode);
+                    console.log(localTargetSymbol);
+                    const exportSymbol = tsProject.getTypeChecker().compilerObject.getExportSymbolOfSymbol(localTargetSymbol);
+                    tsProject.getLanguageService().compilerObject.findReferences()
+                    console.log(exportSymbol);
+                    console.log('\n'.repeat(5));
+                }
             }
             if(ui.occasionallyAwait()) await null;
         }
@@ -182,7 +207,7 @@ interface ExportInfo {
     declaration: Node;
     name: NameNode;
     /** node suitable for "find all references" queries */
-    referenceFindableNode: ReferenceFindableNode;
+    referenceFindableNode: ReferenceFindableNode & Node;
     /** Name of the export, null if it is `export =` assignment */
     exportName: string;
     obtainedViaAlternateMethod: boolean;
@@ -198,6 +223,7 @@ interface StatementInfo {
  */
 function* forEachSourceFileExportOrStatement(sf: SourceFile): Iterable<ExportInfo | StatementInfo> {
     const visited = new Set();
+    console.dir(sf.getExportSymbols().map(s => s.getName()));
     for(const ed of sf.getExportedDeclarations()) {
         for(const declaration of ed[1]) {
             const statement = getParentTopLevelStatement(declaration);
