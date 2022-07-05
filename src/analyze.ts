@@ -59,7 +59,7 @@ export async function createProgram(config: LoadedConfig) {
         ui.state.filesInProjectCount = project.files.length;
         file.gcFlags |= GcFlag.didReferenceSearch;
 
-        log(`- ${ getLoggableFilename(file.filename) }`);
+        log(`- FILE ${ getLoggableFilename(file.filename) }`);
         for(const d of forEachDeclarationOrStatement(sourceFile)) {
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
@@ -70,7 +70,7 @@ export async function createProgram(config: LoadedConfig) {
             file.declarations.push(graphDeclaration);
             if(d.hasName) {
                 graphDeclaration.name = d.nameString;
-                log(`  - <${d.isExport ? 'export' : 'local'}> ${d.nameString} ${getLoggableLocation(d.name ?? d.declaration)}`);
+                log(`  - ${d.isExport ? 'EXPORT' : 'LOCAL'} ${d.nameString} ${getLoggableLocation(d.name ?? d.declaration)}`);
                 let refs: Node[];
                 try {
                     refs = d.referenceFindableNode.findReferencesAsNodes();
@@ -86,7 +86,6 @@ export async function createProgram(config: LoadedConfig) {
                 for(const r of moreRefs) {
                     refs.push(r.getDefinition().getNode());
                     for(const r2 of r.getReferences()) {
-                        console.log(r2.getNode().getText());
                         refs.push(r2.getNode());
                     }
                 }
@@ -96,7 +95,7 @@ export async function createProgram(config: LoadedConfig) {
 
                 graphDeclaration.gcFlags |= GcFlag.didReferenceSearch;
                 tuples.push([d, graphDeclaration, refs]);
-                log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
+                log(refs.map(r => `    - REF ${getLoggableLocation(r)}`).join('\n'));
             } else {
                 log(`  - <statement> ${getLoggableLocation(d.statement)}`);
             }

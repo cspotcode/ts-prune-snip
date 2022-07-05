@@ -1,4 +1,5 @@
 const {showsBug} = require('./reference-bug-foo');
+const {varUsed} = require('./functions');
 
 const fns = require('./functions');
 const jsFns = require('./functions_js');

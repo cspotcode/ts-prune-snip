@@ -104,6 +104,25 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
             continue;
         }
 
+        const exportDeclaration = statement.asKind(SyntaxKind.ExportDeclaration);
+        if(exportDeclaration) {
+            for(const binding of exportDeclaration.getNamedExports() ?? []) {
+                // In `export {foo as aliasFoo}`, the alias node is `aliasFoo`
+                // This is what we want for reference checking
+                const name = binding.getAliasNode() ?? binding.getNameNode();
+                yield {
+                    hasName: true,
+                    declaration: binding,
+                    isExport: false,
+                    name,
+                    nameString: binding.getText(),
+                    obtainedViaAlternateMethod: false,
+                    referenceFindableNode: getReferenceFindable(name),
+                    statement: statement
+                }
+            }
+        }
+
         const functionOrClassDeclaration = statement.asKind(SyntaxKind.FunctionDeclaration) ?? statement.asKind(SyntaxKind.ClassDeclaration);
         if(functionOrClassDeclaration) {
             yield {
@@ -163,14 +182,15 @@ type NameNode = Identifier | ObjectBindingPattern | ArrayBindingPattern | String
 // For reference:
 // export declare type ExportedDeclarations = ClassDeclaration | InterfaceDeclaration | EnumDeclaration | FunctionDeclaration | VariableDeclaration | TypeAliasDeclaration | ModuleDeclaration | Expression | SourceFile;
 
-export function getNameIdentifier(node: ExportedDeclarations | ImportSpecifier): NameNode {
+export function getNameIdentifier(node: ExportedDeclarations | ImportSpecifier | Identifier): NameNode {
     const ret = node.asKind(SyntaxKind.ClassDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.InterfaceDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.EnumDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.FunctionDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.VariableDeclaration)?.getNameNode()
         ?? node.asKind(SyntaxKind.TypeAliasDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.ModuleDeclaration)?.getNameNode();
+        ?? node.asKind(SyntaxKind.ModuleDeclaration)?.getNameNode()
+        ?? node.asKind(SyntaxKind.Identifier);
     // Expression | SourceFile
     if(ret) return ret;
 
