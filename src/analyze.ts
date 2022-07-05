@@ -42,7 +42,8 @@ export async function createProgram(config: LoadedConfig) {
         referencesBugWorkaroundApi.addFile(sf);
     }
     const referencesSourceFile = referencesBugWorkaroundApi.createSourceFile();
-    referencesSourceFile.saveSync();
+    if(config.emitVirtualFile)
+        referencesSourceFile.saveSync();
 
 
     // Iterate again to instantiate files, declarations, and collect references

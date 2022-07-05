@@ -13,6 +13,7 @@ export interface Config {
     /** All source files.  Used when checking for grep references */
     sources: string[];
     tsConfigPath: string;
+    emitVirtualFile?: boolean;
     emit: boolean;
 }
 
