@@ -1,4 +1,4 @@
-import { ArrayBindingPattern, ExportedDeclarations, Identifier, ObjectBindingPattern, ReferenceFindableNode, StringLiteral, SyntaxKind, Node, SourceFile, ImportSpecifier, BindingPattern, BindingName, VariableDeclaration, BindingElement } from "ts-morph";
+import { ArrayBindingPattern, ExportedDeclarations, Identifier, ObjectBindingPattern, ReferenceFindableNode, StringLiteral, SyntaxKind, Node, SourceFile, ImportSpecifier, BindingPattern, BindingName, VariableDeclaration, BindingElement, createWrappedNode } from "ts-morph";
 import assert from 'assert';
 import { getLoggableLocation } from "./logging";
 import { getParentTopLevelStatement } from "./analyze";

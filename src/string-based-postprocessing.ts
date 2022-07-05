@@ -12,7 +12,7 @@ export function postprocessSource(sourceText: string) {
 
     // Remove empty var, const, or let declarations
     repeatTillStable(() => {
-        sourceText = sourceText.replace(/(^|\n) *(var|const|let)[\s\n]*;/g, '');
+        sourceText = sourceText.replace(/(^|\n) *(export *)?(var|const|let)[\s\n]*(;|\n)/g, '');
     });
 
     return sourceText;
