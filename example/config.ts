@@ -2,5 +2,5 @@ export const config: import('../src/config').Config = {
     entrypoints: ['entrypoint*.*'],
     tsConfigPath: './tsconfig.json',
     sources: ["*.*"],
-    emit: false,
+    emit: true,
 }
