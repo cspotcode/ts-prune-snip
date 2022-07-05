@@ -44,10 +44,13 @@ then generate excel sheet of exports
 - [ ] non-exported statements should still get names.  Right now, `function foo() {}` does not have a name in usage reports
 
 - [ ] teach reachability analysis to understand:
-  - [ ] var declarations: iterate each var, find references to each var
-  - [ ] function declarations: find references to the function
-  - [ ] `export {}` statements: iterate each export, find references to each
+  - [x] var declarations: iterate each var, find references to each var
+  - [x] function declarations: find references to the function
+  - [x] `export {}` statements: iterate each export, find references to each
 
+- [ ] cleanup snipped code
+  - remove empty `let`/`var`/`const` statement
+  - remove leading commas in `export {}` and `import {}`
 ## Keep in mind
 
 - circular references should be skipped.  If a function calls itself, it can still be dead code.

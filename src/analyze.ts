@@ -64,7 +64,7 @@ export async function createProgram(config: LoadedConfig) {
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
                 statement: d.statement,
-                span: createSpan(d.statement),
+                span: createSpan((d as NamedDeclarationInfo).declaration ?? d.statement),
                 isExport: d.isExport
             });
             file.declarations.push(graphDeclaration);

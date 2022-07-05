@@ -14,7 +14,6 @@ export interface NamedDeclarationInfo {
     referenceFindableNode: ReferenceFindableNode & Node;
     /** Name of the export, null if it is `export =` assignment */
     nameString: string; // TODO is this used?
-    obtainedViaAlternateMethod: boolean; // TODO remove?
 }
 interface StatementInfo {
     hasName: false;
@@ -45,7 +44,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                 statement,
                 declaration,
                 name,
-                obtainedViaAlternateMethod: false,
                 referenceFindableNode
             };
         }
@@ -64,7 +62,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                         hasName: true,
                         name,
                         nameString: name.getText(),
-                        obtainedViaAlternateMethod: false,
                         referenceFindableNode: getReferenceFindable(name.getParent() as VariableDeclaration | BindingElement),
                         statement,
                         declaration: name.getParent(),
@@ -83,7 +80,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                     isExport: false,
                     name: getNameIdentifier(binding),
                     nameString: binding.getText(),
-                    obtainedViaAlternateMethod: false,
                     referenceFindableNode: getReferenceFindable(binding),
                     statement: statement
                 }
@@ -96,7 +92,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                     declaration: nsImport,
                     isExport: false,
                     nameString: nsImport.getText(),
-                    obtainedViaAlternateMethod: false,
                     referenceFindableNode: getReferenceFindable(nsImport),
                     statement,
                 }
@@ -116,7 +111,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                     isExport: false,
                     name,
                     nameString: binding.getText(),
-                    obtainedViaAlternateMethod: false,
                     referenceFindableNode: getReferenceFindable(name),
                     statement: statement
                 }
@@ -131,7 +125,6 @@ export function* forEachDeclarationOrStatement(sf: SourceFile): Iterable<NamedDe
                 declaration: functionOrClassDeclaration,
                 name: getNameIdentifier(functionOrClassDeclaration),
                 nameString: getNameIdentifier(functionOrClassDeclaration).getText(),
-                obtainedViaAlternateMethod: false,
                 referenceFindableNode: getReferenceFindable(functionOrClassDeclaration),
                 statement,
             }
