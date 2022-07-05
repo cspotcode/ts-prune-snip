@@ -75,7 +75,8 @@ export async function createProgram(config: LoadedConfig) {
                 graphDeclaration.name = d.nameString;
                 log(`  - ${d.isExport ? 'EXPORT' : 'LOCAL'} ${d.nameString} ${getLoggableLocation(d.name ?? d.declaration)}`);
                 let refs: Node[] = [];
-                if(!config.skipReferenceDiscoveryGlobbedAbs.includes(file.filename)) {
+                // TODO HACK get rid of magic string
+                if(!config.skipReferenceDiscoveryGlobbedAbs.includes(file.filename) && !file.filename.includes('__virtual__')) {
                     try {
                         refs = d.referenceFindableNode.findReferencesAsNodes();
                     } catch(e: unknown) {

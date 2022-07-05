@@ -68,6 +68,12 @@ export function visitProject(project: Project, visitOptions: VisitOptions, _visi
         for(const r of d.checkerUsages) {
             visitReference(r);
         }
+        // Skip visiting the file since that would visit all other declarations in the file.
+        // Should really refactor so that each file gets an "orphaned usage" declaration to house
+        // these references
+        for(const r of d.file.orphanedCheckerUsages) {
+            visitReference(r);
+        }
         if(visitOptions.followGrepReferences) {
             for(const r of d.grepUsages) {
                 visitReference(r);

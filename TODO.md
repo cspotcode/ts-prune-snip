@@ -51,8 +51,13 @@ then generate excel sheet of exports
 - [ ] cleanup snipped code
   - [x] remove empty `let`/`var`/`const` statement
   - [x] remove leading commas in `export {}` and `import {}`
+  - [ ] remove leading commas in `const/let/var {}`
 
-- [ ] when removing `export.foo = `, remove the whole statement
+- [x] when removing `export.foo = `, remove the whole statement
+
+- [ ] skip refs within `node_modules`
+- [ ] teach string-based postprocess to also preserve newlines.
+
 ## Keep in mind
 
 - circular references should be skipped.  If a function calls itself, it can still be dead code.
