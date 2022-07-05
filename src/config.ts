@@ -15,12 +15,15 @@ export interface Config {
     tsConfigPath: string;
     emitVirtualFile?: boolean;
     emit: boolean;
+    preserveLineNumbers?: boolean;
+    skipReferenceDiscovery: string[];
 }
 
 export interface LoadedConfig extends Config {
     basedir: string;
     entrypointsGlobbedAbs: string[];
     sourcesGlobbedAbs: string[];
+    skipReferenceDiscoveryGlobbedAbs: string[];
 }
 
 export async function readConfig(configPath: string, cwd: string = process.cwd()): Promise<LoadedConfig> {
@@ -30,27 +33,12 @@ export async function readConfig(configPath: string, cwd: string = process.cwd()
     const basedir = Path.dirname(configPathAbs);
     const entrypointsGlobbedAbs = (await globby(config.entrypoints, {absolute: true, cwd: basedir}));
     const sourcesGlobbedAbs = (await globby(config.sources, {absolute: true, cwd: basedir}));
+    const skipReferenceDiscoveryGlobbedAbs = (await globby(config.skipReferenceDiscovery, {absolute: true, cwd: basedir}));
     return {
         basedir,
         entrypointsGlobbedAbs,
         sourcesGlobbedAbs,
+        skipReferenceDiscoveryGlobbedAbs,
         ...config,
     }
 }
-
-export const config: Config = {
-    gitReset: false,
-    deleteFiles: [
-        'src/index_ui_*'
-    ],
-    entrypoints: [
-        'src/index_*'
-    ],
-    sources: [
-        'src/**/*.js',
-        'src/**/*.ts'
-    ],
-    tsConfigPath: 'example/tsconfig.json'
-};
-
-export default config;

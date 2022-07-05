@@ -22,11 +22,15 @@ export function collapseSpans(spans: Span[]) {
     return collapsed;
 }
 
-export function applyCollapsedEdits(source: string, spans: Span[]) {
+export function applyCollapsedEdits(source: string, spans: Span[], preserveLineNumbers: boolean) {
     let acc = source;
     for(let i = spans.length - 1; i >= 0; i--) {
         const span = spans[i];
-        acc = acc.slice(0, span.start) + acc.slice(span.end);
+        let replacement = '';
+        if(preserveLineNumbers) {
+            replacement = '\n'.repeat(acc.slice(span.start, span.end).split('\n').length - 1);
+        }
+        acc = acc.slice(0, span.start) + replacement + acc.slice(span.end);
     }
     return acc;
 }
