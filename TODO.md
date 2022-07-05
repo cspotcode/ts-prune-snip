@@ -49,8 +49,10 @@ then generate excel sheet of exports
   - [x] `export {}` statements: iterate each export, find references to each
 
 - [ ] cleanup snipped code
-  - remove empty `let`/`var`/`const` statement
-  - remove leading commas in `export {}` and `import {}`
+  - [x] remove empty `let`/`var`/`const` statement
+  - [x] remove leading commas in `export {}` and `import {}`
+
+- [ ] when removing `export.foo = `, remove the whole statement
 ## Keep in mind
 
 - circular references should be skipped.  If a function calls itself, it can still be dead code.
