@@ -2,7 +2,7 @@ import React from 'react';
 import {observer} from 'mobx-react-lite';
 import {makeAutoObservable} from 'mobx';
 import {render, Text} from 'ink';
-import { configure } from "mobx"
+import { configure } from 'mobx';
 
 // Simple react-based live readout of analysis progress
 
@@ -12,7 +12,7 @@ configure({
 
 class UiState {
     constructor() {
-        makeAutoObservable(this);
+        // makeAutoObservable(this);
     }
     tick = 0;
     maxLogLength = 5;

@@ -6,11 +6,12 @@ import { globby } from '@cspotcode/zx';
 import assert from 'assert';
 import { GcFlag, mark, resetGcFlags } from './gc';
 import { getLoggableFilename, getLoggableLocation } from './logging';
-import { groupBy, mapValues } from 'lodash';
+import { groupBy, mapValues, uniq } from 'lodash';
 import { applyCollapsedEdits, collapseSpans } from './snipping';
 import fs from 'fs';
 import {createUi} from './ui';
 import { createReferencesBugWorkaroundApi } from './reference-bug-workaround';
+import { forEachDeclarationOrStatement, getNameIdentifier, NamedDeclarationInfo } from './iterate-declarations';
 
 let log: (msg: string) => void;
 
@@ -32,7 +33,7 @@ export async function createProgram(config: LoadedConfig) {
 
     // Iterate once to avoid ts-morph bug(?)
     for(const sf of tsProject.getSourceFiles()) {
-        for(const d of forEachSourceFileExportOrStatement(sf)) {}
+        for(const d of forEachDeclarationOrStatement(sf)) {}
     }
 
     // Instantiate workaround helper
@@ -40,10 +41,13 @@ export async function createProgram(config: LoadedConfig) {
     for(const sf of tsProject.getSourceFiles()) {
         referencesBugWorkaroundApi.addFile(sf);
     }
-    referencesBugWorkaroundApi.createSourceFile();
+    const referencesSourceFile = referencesBugWorkaroundApi.createSourceFile();
+    referencesSourceFile.saveSync();
+
 
     // Iterate again to instantiate files, declarations, and collect references
-    const tuples: [ExportInfo, Declaration, Node[]][] = [];
+    // TODO make third element of tuple a SourceFile & position pair, not a Node
+    const tuples: [NamedDeclarationInfo, Declaration, Node[]][] = [];
     for(const sourceFile of tsProject.getSourceFiles()) {
         const file = graphFactory.createFile({
             filename: sourceFile.getFilePath(),
@@ -55,7 +59,7 @@ export async function createProgram(config: LoadedConfig) {
         file.gcFlags |= GcFlag.didReferenceSearch;
 
         log(`- ${ getLoggableFilename(file.filename) }`);
-        for(const d of forEachSourceFileExportOrStatement(sourceFile)) {
+        for(const d of forEachDeclarationOrStatement(sourceFile)) {
             const graphDeclaration = graphFactory.createDeclaration({
                 file,
                 statement: d.statement,
@@ -63,20 +67,29 @@ export async function createProgram(config: LoadedConfig) {
                 isExport: d.isExport
             });
             file.declarations.push(graphDeclaration);
-            if(d.isExport) {
-                graphDeclaration.name = d.exportName;
-                log(`  - <export> ${d.exportName} ${getLoggableLocation(d.name ?? d.declaration)}`);
+            if(d.hasName) {
+                graphDeclaration.name = d.nameString;
+                log(`  - <${d.isExport ? 'export' : 'local'}> ${d.nameString} ${getLoggableLocation(d.name ?? d.declaration)}`);
                 let refs: Node[];
                 try {
                     refs = d.referenceFindableNode.findReferencesAsNodes();
                 } catch(e: unknown) {
                     if((e as Error).message.includes('A language service is required')) {
-                        console.log(`using language service for ${d.referenceFindableNode.getFullText()}`);
+                        log(`using language service for ${d.referenceFindableNode.getFullText()}`);
                         refs = tsProject.getLanguageService().findReferencesAsNodes(d.referenceFindableNode);
                     } else {
                         throw e;
                     }
                 }
+                const moreRefs = tsProject.getLanguageService().findReferencesAtPosition(referencesSourceFile, referencesBugWorkaroundApi.getExportPosition(sourceFile, d.nameString)!);
+                for(const r of moreRefs) {
+                    refs.push(r.getDefinition().getNode());
+                    for(const r2 of r.getReferences()) {
+                        console.log(r2.getNode().getText());
+                        refs.push(r2.getNode());
+                    }
+                }
+                refs = uniq(refs);
 
                 // TODO use the workaround to find more references
 
@@ -85,21 +98,6 @@ export async function createProgram(config: LoadedConfig) {
                 log(refs.map(r => `    - ${getLoggableLocation(r)}`).join('\n'));
             } else {
                 log(`  - <statement> ${getLoggableLocation(d.statement)}`);
-                const nameNode = d.statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression)?.getLeft().asKind(SyntaxKind.PropertyAccessExpression)?.getNameNode();
-                if(nameNode?.getFullText().includes('showsBug')) {
-                    console.log('\n'.repeat(5));
-                    console.log(d.statement.getFullText());
-                    console.log(nameNode.getFullText());
-                    console.log(tsProject.getLanguageService().findReferencesAtPosition(sourceFile, nameNode.getStart())[0]);
-                    console.log(nameNode.findReferencesAsNodes());
-                    console.log(tsProject.getTypeChecker().compilerObject.getSymbolAtLocation(nameNode.compilerNode));
-                    const localTargetSymbol = tsProject.getTypeChecker().compilerObject.getExportSpecifierLocalTargetSymbol(nameNode.compilerNode);
-                    console.log(localTargetSymbol);
-                    const exportSymbol = tsProject.getTypeChecker().compilerObject.getExportSymbolOfSymbol(localTargetSymbol);
-                    tsProject.getLanguageService().compilerObject.findReferences()
-                    console.log(exportSymbol);
-                    console.log('\n'.repeat(5));
-                }
             }
             if(ui.occasionallyAwait()) await null;
         }
@@ -167,7 +165,7 @@ export async function createProgram(config: LoadedConfig) {
     log('Unreachable statements:');
     for(const declaration of graphFactory.nodes) {
         if(declaration.kind === GraphNodeKind.Declaration && !reachable(declaration) && !unreachableFiles.has(declaration.file) && config.sourcesGlobbedAbs.includes(declaration.file.filename)) {
-            log(`- ${declaration.name ?? '<statement>'} (in ${getLoggableFilename(declaration.file.filename)}:${declaration.statement.getStartLineNumber()})`)
+            log(`- ${declaration.name ?? '<statement>'} (in ${getLoggableFilename(declaration.file.filename)}:${declaration.statement.getStartLineNumber()})`);
             spansToRemove.push([declaration.file.filename, declaration.span]);
         }
     }
@@ -200,129 +198,6 @@ export async function createProgram(config: LoadedConfig) {
     }
 }
 
-interface ExportInfo {
-    isExport: true,
-    /** Direct child of SourceFile */
-    statement: Node;
-    declaration: Node;
-    name: NameNode;
-    /** node suitable for "find all references" queries */
-    referenceFindableNode: ReferenceFindableNode & Node;
-    /** Name of the export, null if it is `export =` assignment */
-    exportName: string;
-    obtainedViaAlternateMethod: boolean;
-}
-interface StatementInfo {
-    isExport: false;
-    statement: Node;
-}
-
-/**
- * Iterate top-level statements, whether or not they are exports,
- * and return useful info about each.
- */
-function* forEachSourceFileExportOrStatement(sf: SourceFile): Iterable<ExportInfo | StatementInfo> {
-    const visited = new Set();
-    console.dir(sf.getExportSymbols().map(s => s.getName()));
-    for(const ed of sf.getExportedDeclarations()) {
-        for(const declaration of ed[1]) {
-            const statement = getParentTopLevelStatement(declaration);
-            // assert(!visited.has(declaration));
-            // assert(!visited.has(statement), `${getLoggableLocation(statement)}`);
-            if(visited.has(declaration)) continue;
-            visited.add(declaration);
-            visited.add(statement);
-            // log(`visited ${getLoggableLocation(statement)} via:\n${declaration.getFullText().slice(0, 300).split('\n').map(l => `> ${l}`).join('\n')}`);
-            log(`visited ${getLoggableLocation(statement)}`);
-            const name = getNameIdentifier(declaration);
-            const referenceFindableNode = getReferenceFindable(declaration);
-            yield {
-                isExport: true,
-                exportName: ed[0],
-                statement,
-                declaration,
-                name,
-                obtainedViaAlternateMethod: false,
-                referenceFindableNode
-            };
-        }
-    }
-    for(const statement of sf.getStatements()) {
-        if(visited.has(statement)) continue;
-        const be = statement.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.BinaryExpression);
-        if(be?.getOperatorToken().isKind(SyntaxKind.EqualsToken)) {
-            const propAccess = be.getLeft().asKind(SyntaxKind.PropertyAccessExpression);
-            if(visited.has(propAccess)) continue;
-            if(propAccess?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'exports') {
-                // assert(false, 'This statement should have been identified as an export');
-            }
-        }
-        yield {
-            isExport: false,
-            statement
-        };
-        //         const exportName = propAccess.getName();
-        //         const exportNameIdentifier = propAccess.getNameNode();
-        //         const referenceFindableNode = getReferenceFindable(propAccess);
-        //         yield {
-        //             exportName,
-        //             name: exportNameIdentifier,
-        //             declaration: propAccess,
-        //             statement,
-        //             obtainedViaAlternateMethod: true,
-        //             referenceFindableNode,
-        //         };
-        //     }
-        // }
-    }
-}
-
-type NameNode = Identifier | ObjectBindingPattern | ArrayBindingPattern | StringLiteral;
-function getNameIdentifier(node: ExportedDeclarations): NameNode {
-    const ret = node.asKind(SyntaxKind.ClassDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.InterfaceDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.EnumDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.FunctionDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.VariableDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.TypeAliasDeclaration)?.getNameNode()
-        ?? node.asKind(SyntaxKind.ModuleDeclaration)?.getNameNode();
-    // Expression | SourceFile
-    if(ret) return ret;
-
-    // Maybe it's `exports.foo = ` expression
-    const propAccessExpr = node.asKind(SyntaxKind.PropertyAccessExpression);
-    if(propAccessExpr?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'exports') {
-        return propAccessExpr.getNameNode();
-    }
-
-    // Maybe it's `someFunctionDeclaration.foo = ` expression (TODO dedupe with logic above for perf)
-    if(
-        node.getParent()?.asKind(SyntaxKind.PropertyAccessExpression)?.getExpression() === node &&
-        node.getParent()?.getParent()?.asKind(SyntaxKind.BinaryExpression)?.getOperatorToken().asKind(SyntaxKind.EqualsToken)
-    ) {
-        return node.getParent().asKind(SyntaxKind.PropertyAccessExpression)?.getNameNode();
-    }
-
-    // Maybe it's Object.defineProperty(exports, 'foo', {` statement
-    const callExpr = node.asKind(SyntaxKind.CallExpression);
-    const callExprExpr = callExpr?.getExpression().asKind(SyntaxKind.PropertyAccessExpression);
-    if(callExprExpr?.getExpression().asKind(SyntaxKind.Identifier)?.getText() === 'Object' && callExprExpr.getName() === 'defineProperty') {
-        if(callExpr.getArguments()[0].asKind(SyntaxKind.Identifier).getText() === 'exports') {
-            log(`WARNING found defineProperty call on exports; this makes static analysis difficult.  Recommend refactoring into a getter function.\n${getLoggableLocation(callExpr)}`);
-        }
-    }
-
-    const tryGetJsDocTypedefName = node.asKind(SyntaxKind.JSDocTypedefTag)?.compilerNode.name;
-    if(tryGetJsDocTypedefName) return createWrappedNode(tryGetJsDocTypedefName);
-
-    if(node.isKind(SyntaxKind.BindingElement) && node.getParent()?.getParent().isKind(SyntaxKind.VariableDeclaration)) {
-        // is `export const {foo} = bar;`; skip for now
-        return undefined;
-    }
-
-    assert(ret != null, `${ node.getKindName() } ${getLoggableLocation(node)} ${node.getFullText()}`);
-    return ret;
-}
 
 /** Given a (grand)child of a descendent, return the *direct* child of the descendent that contains the (grand)child */
 function ascendToDirectChild(parent: Node, node: Node) {
@@ -334,20 +209,11 @@ function ascendToDirectChild(parent: Node, node: Node) {
     return _node;
 }
 
-function getParentTopLevelStatement(node: Node) {
+export function getParentTopLevelStatement(node: Node) {
     const ret = ascendToDirectChild(node.getSourceFile(), node);
     // This didn't work; pretty sure I got mixed up on the logic
     // const ret = node.getParentWhile((parent, child) => !parent.isKind(SyntaxKind.SourceFile));
     assert(ret);
-    return ret;
-}
-
-function getReferenceFindable(node: ExportedDeclarations) {
-    let ret: Node | undefined = getNameIdentifier(node) ?? node;
-    while(!Node.isReferenceFindable(ret)) {
-        ret = ret.getParent();
-        assert(ret);
-    }
     return ret;
 }
 
@@ -370,3 +236,4 @@ function getDeclaration(file: File, node: Node) {
         d.span.start <= start && d.span.end > start
     );
 }
+

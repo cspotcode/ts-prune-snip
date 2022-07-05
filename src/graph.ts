@@ -81,7 +81,7 @@ export function createSpan(node: Node): Span {
         fullStart: node.getFullStart(),
         start: node.getStart(),
         end: node.getEnd()
-    }
+    };
 }
 
 type P<T> = Partial<Omit<T, keyof GcObject | 'kind'>>;
