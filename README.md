@@ -11,6 +11,6 @@ to identify code in a large codebase that nobody is using so that it can be revi
 
 This tool is a WIP, a prototype.  In lieu of a proper usage guide, consult the example:
 
-- [example](example)
-- [configuration file](example/config.ts)
-- [to run the tool](example/run-example.sh)
+- [example project](example)
+  - [configuration file](example/config.ts)
+  - [to run the tool](example/run-example.sh)
